@@ -21,31 +21,37 @@ use snarkvm_dpc::block::BlockHeader;
 use circular_queue::CircularQueue;
 use twox_hash::xxh3::hash64;
 
-pub struct Cache {
+#[derive(Debug, Clone)]
+pub struct Cache<const N: usize> {
     queue: CircularQueue<u64>,
 }
 
-impl Default for Cache {
+impl<const N: usize> Default for Cache<N> {
     fn default() -> Self {
         Self {
-            queue: CircularQueue::with_capacity(8 * 1024),
+            queue: CircularQueue::with_capacity(N),
         }
     }
 }
 
-impl Cache {
-    pub fn contains(&mut self, payload: &Payload) -> bool {
+impl<const N: usize> Cache<N> {
+    pub fn contains(&self, payload: &Payload) -> bool {
         let hash = if let Payload::Block(bytes, _) = payload {
             hash64(&bytes[..BlockHeader::size()])
         } else {
             unreachable!("Only blocks are cached for now");
         };
 
-        if self.queue.iter().any(|&e| e == hash) {
-            true
+        self.queue.iter().any(|&e| e == hash)
+    }
+
+    pub fn push(&mut self, payload: &Payload) {
+        let hash = if let Payload::Block(bytes, _) = payload {
+            hash64(&bytes[..BlockHeader::size()])
         } else {
-            self.queue.push(hash);
-            false
-        }
+            unreachable!("Only blocks are cached for now");
+        };
+
+        self.queue.push(hash);
     }
 }

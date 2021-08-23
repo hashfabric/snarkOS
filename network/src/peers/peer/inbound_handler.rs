@@ -76,15 +76,38 @@ impl Peer {
                         .try_send(KnownNetworkMessage::Height(self.address, block_height));
                 }
             }
-            payload => {
+            payload @ Payload::Block(..) => {
+                self.block_received_cache.push(&payload);
                 // Check if the message hasn't already been processed recently if it's a `Block`.
                 // The node should also reject them while syncing, as it is bound to receive them later.
+                metrics::increment_counter!(inbound::BLOCKS);
+
+                {
+                    let mut inbound_cache = node.inbound_cache.lock().await;
+                    if inbound_cache.contains(&payload) {
+                        metrics::increment_counter!(misc::DUPLICATE_BLOCKS);
+                        return Ok(());
+                    } else {
+                        inbound_cache.push(&payload);
+                    }
+                }
+
+                if node.state() == State::Syncing {
+                    return Ok(());
+                }
+            }
+            payload => {
                 if matches!(payload, Payload::Block(..)) {
                     metrics::increment_counter!(inbound::BLOCKS);
 
-                    if node.inbound_cache.lock().await.contains(&payload) {
-                        metrics::increment_counter!(misc::DUPLICATE_BLOCKS);
-                        return Ok(());
+                    {
+                        let mut inbound_cache = node.inbound_cache.lock().await;
+                        if inbound_cache.contains(&payload) {
+                            metrics::increment_counter!(misc::DUPLICATE_BLOCKS);
+                            return Ok(());
+                        } else {
+                            inbound_cache.push(&payload);
+                        }
                     }
 
                     if node.state() == State::Syncing {
